@@ -227,7 +227,11 @@ bool Swapchain::AcquireNextImage(bool may_flush) {
 }
 
 void Swapchain::Present(VkSemaphore render_semaphore) {
-    const auto present_queue{device.GetPresentQueue()};
+    // On a queue no submit uses, under a lock of its own, so a present that waits for a vblank
+    // doesn't hold up the scheduler's submits (Device::HasOwnPresentQueue). Otherwise on the
+    // graphics queue under the submit lock, as before.
+    const bool own_queue = device.HasOwnPresentQueue();
+    const auto present_queue{own_queue ? device.GetOwnPresentQueue() : device.GetPresentQueue()};
     const VkPresentInfoKHR present_info{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .pNext = nullptr,
@@ -238,7 +242,7 @@ void Swapchain::Present(VkSemaphore render_semaphore) {
         .pImageIndices = &image_index,
         .pResults = nullptr,
     };
-    std::scoped_lock lock{scheduler.submit_mutex};
+    std::scoped_lock lock{own_queue ? device.GetOwnPresentQueueMutex() : scheduler.submit_mutex};
     switch (const VkResult result = present_queue.Present(present_info)) {
     case VK_SUCCESS:
         break;
