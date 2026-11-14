@@ -152,12 +152,23 @@ void Swapchain::Create(
     // Submitted work may still wait on the old acquire/present semaphores; destroying them under
     // it loses the device on MoltenVK (window moved to a display with a different scale).
     if (swapchain) {
-        std::scoped_lock lock{scheduler.submit_mutex};
-        const VkResult result = device.GetLogical().WaitIdle();
-        if (result == VK_ERROR_DEVICE_LOST) {
-            device.ReportLoss();
+        const auto wait_idle = [this] {
+            const VkResult result = device.GetLogical().WaitIdle();
+            if (result == VK_ERROR_DEVICE_LOST) {
+                device.ReportLoss();
+            }
+            vk::Check(result);
+        };
+        // vkDeviceWaitIdle needs every queue of the device externally synchronized, so with
+        // presents on a queue of their own it takes that queue's lock too. Nothing takes
+        // submit_mutex while holding the present queue's lock, so the pair can't deadlock.
+        if (device.HasOwnPresentQueue()) {
+            std::scoped_lock lock{scheduler.submit_mutex, device.GetOwnPresentQueueMutex()};
+            wait_idle();
+        } else {
+            std::scoped_lock lock{scheduler.submit_mutex};
+            wait_idle();
         }
-        vk::Check(result);
     }
     Destroy();
 

@@ -304,7 +304,8 @@ public:
         return graphics_queue;
     }
 
-    /// Returns the main present queue.
+    /// Returns the main present queue. When the present family isn't the graphics family, this is
+    /// the same VkQueue as GetOwnPresentQueue and needs GetOwnPresentQueueMutex.
     vk::Queue GetPresentQueue() const {
         return present_queue;
     }
